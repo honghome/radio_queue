@@ -3,9 +3,11 @@ import threading
 import json, time
 import MySQLdb
 from pika import spec
+from utility import Utility
+import data_process
 
-import logging
-logging.basicConfig()
+#import logging
+#logging.basicConfig()
 
 CMDQUEUE = 'cmd_queue'
 PUBQUEUE = 'pub_queue'
@@ -25,34 +27,6 @@ RESOPNSE_TIMEOUT = 2
 RESOPNSE_WAIT = 3
 
 CLIENTCMDTHREAD = 'client_cmd_thread'
-
-class Utility:
-	@staticmethod
-	def GetThreadMsgProps():
-		# properties for message
-		thread_msg_props = pika.BasicProperties()
-		thread_msg_props.content_type = "application/json"
-		return thread_msg_props
-
-	@staticmethod
-	def GetCmdMsgProps():
-		'''
-		for a message that's in flight inside Rabbit to survive a crash, the message must
-			- Have its delivery mode option set to 2 (persistent)
-			- Be published into a durable exchange -> channel.exchange_declare(durable=True)
-			- Arrive in a durable queue -> channel.queue_declare(durable=True)
-		'''
-		cmd_msg_props = pika.BasicProperties()
-		cmd_msg_props.content_type = "application/json"
-		#cmd_msg_props.delivery_mode = 2 # make message persistent
-		return cmd_msg_props
-
-	@staticmethod
-	def ThreadExist(threadName):
-		for thread in threading.enumerate():
-			if thread.name == threadName:
-				return True
-		return False
 	
 
 '''
@@ -65,7 +39,8 @@ TODO:
 '''
 class Server:
 	def __init__(self, serverName='localhost', userName='guest', passwdName='guest',
-		               vhostName='radio_guest', exchangeName='direct_logs'):
+		               vhostName='radio_guest', exchangeName='direct_logs',
+		               db_hostName='localhost', db_userName='test',db_passwdname='',db_dbName='test'):
 		self.cmd_msg_props = Utility.GetCmdMsgProps()
 		self.thread_msg_props = Utility.GetThreadMsgProps()
 		self.serverName = serverName
@@ -75,12 +50,10 @@ class Server:
 		self.exchangeName = exchangeName
 		self.channelMap = {}
 		self.recover()
-		self.mysql_conn = MySQLdb.connect("localhost","test", "",
-						"test",charset="utf8" )
-		self.curs = self.mysql_conn.cursor()
-		self.sql = "insert into result_info (access_key, stream_url, stream_id, result, timestamp,catchDate) \
-					values (%s, %s, %s, %s, %s, CURRENT_DATE()) on duplicate key update id=LAST_INSERT_ID(id)"
-
+		self.data_backup = data_process.Backup(hostName=db_hostName,
+											   userName=db_userName, 
+											   passwdName=db_passwdname,
+											   dbName=db_dbName)
 
 	#TODO:
 	# recover based on self.channelMap or another 
@@ -201,17 +174,7 @@ class Server:
 		cmdType = data['action']
 		if cmdType == CMDRECOGN:
 			#print "[%s]receive: %s" % (threading.current_thread().getName(), data)
-			
-			params = (data.get('access_key', 'unknow'),
-				      data.get('stream_url', 'unknow'),
-				      data.get('stream_id', 'unknow'),
-				      json.dumps(data.get('result', {})),
-				      data.get('timestamp'),)
-			try:
-				self.curs.execute(self.sql, params)
-			except MySQLdb.Error as e:
-				print e
-			self.mysql_conn.commit()
+			self.data_backup.save_one(data)
 		else:
 			print "unknow cmd"
 		#ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -243,13 +206,10 @@ class Server:
 
 	# get a connection based on the connection option
 	def get_connection(self):
-		creds = pika.PlainCredentials(self.userName, self.passwdName)
-		params = pika.ConnectionParameters(self.serverName,
-										   virtual_host=self.vhostName,
-										   credentials=creds)
-		conn = pika.BlockingConnection(params)
-		return conn
-
+		return Utility.getConnection(serverName=self.serverName,
+									 userName=self.userName,
+									 passwdName=self.passwdName,
+									 vhostName=self.vhostName)
 '''
 TODO:
 1. add user/passwd option for Client.__init__,like that
@@ -371,12 +331,10 @@ class Client:
 
 	# get a connection based on the connection option
 	def get_connection(self):
-		creds = pika.PlainCredentials(self.userName, self.passwdName)
-		params = pika.ConnectionParameters(self.serverName,
-										   virtual_host=self.vhostName,
-										   credentials = creds)
-		conn = pika.BlockingConnection(params)
-		return conn
+		return Utility.getConnection(serverName=self.serverName,
+									 userName=self.userName,
+									 passwdName=self.passwdName,
+									 vhostName=self.vhostName)
 	
 	# the command entry for radio process, but the process must access the send_cmd !!!!
 	# TODO:
