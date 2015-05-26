@@ -1,6 +1,26 @@
 import pika
 import threading
 
+
+CMDQUEUE = 'cmd_queue'
+PUBQUEUE = 'pub_queue'
+RESPONSEQUEUE = 'response_queue_'
+
+CMDROUTING = 'cmd_routing'
+CMDCONSUMERTAG ='cmd_consumer'
+
+CMDADD = 1
+CMDDEL = 2
+CMDRECOGN = 3
+CMDQUITALL =  4
+CMDREPORTIDS = 5
+
+RESOPNSE_OK = 1
+RESOPNSE_TIMEOUT = 2
+RESOPNSE_WAIT = 3
+
+CLIENTCMDTHREAD = 'client_cmd_thread'
+
 class Utility:
 	@staticmethod
 	def GetThreadMsgProps():
@@ -30,12 +50,13 @@ class Utility:
 		return False
 
 	@staticmethod
-	def getConnection(serverName='localhost', userName='guest',
+	def getConnection(serverName='localhost', port=None, userName='guest',
 					  passwdName='guest', vhostName='radio_guest'):
 		conn = None
 		try:
 			creds = pika.PlainCredentials(userName, passwdName)
 			params = pika.ConnectionParameters(serverName,
+											   port=port,
 										   	   virtual_host=vhostName,
 										       credentials=creds)
 			conn = pika.BlockingConnection(params)
